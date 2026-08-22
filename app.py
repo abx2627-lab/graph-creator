@@ -23,16 +23,10 @@ if "positions" not in st.session_state:
     st.session_state.positions = {"s": {"x": -2.5, "y": 0.0}, "t": {"x": 2.5, "y": 0.0}}
 if "edges" not in st.session_state:
     st.session_state.edges = []
-if "source_node" not in st.session_state:
-    st.session_state.source_node = "s"
-if "target_node" not in st.session_state:
-    st.session_state.target_node = "t"
 if "show_grid" not in st.session_state:
     st.session_state.show_grid = True
 
-# -----------------------------------------------------------------------------
-# RECUPERATION DES POSITIONS MISES À JOUR (EVITE LE RESET)
-# -----------------------------------------------------------------------------
+# Sync positions après drag & drop
 query_params = st.query_params
 if "canvas_data" in query_params:
     try:
@@ -44,39 +38,37 @@ if "canvas_data" in query_params:
         pass
 
 # -----------------------------------------------------------------------------
-# BARRE LATÉRALE - CONTRÔLES ET CONFIGURATION DES ARÊTES
+# BARRE LATÉRALE - CONTRÔLES
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.title("⚙️ Panneau de Contrôle")
     st.markdown("---")
     
-    # 1. REPÈRE & GRILLE
     st.subheader("📐 Options d'Affichage")
     st.session_state.show_grid = st.checkbox("Afficher le repère cartésien", value=st.session_state.show_grid)
-    
     st.markdown("---")
     
-    # 2. AJOUT / MODIFICATION PAR COORDONNÉES (X, Y)
+    # 1. AJOUT / MODIFICATION DE SOMMET
     st.subheader("➕ Ajouter / Déplacer un Sommet")
-    node_name = st.text_input("Nom du sommet (ex: v1, s, t) :", value="v1").strip()
+    node_name = st.text_input("Nom du sommet (ex: v1, v2) :", value="v1").strip()
     col_x, col_y = st.columns(2)
     with col_x:
         pos_x = st.number_input("Coord. X :", value=0.0, step=0.5)
     with col_y:
         pos_y = st.number_input("Coord. Y :", value=0.0, step=0.5)
         
-    if st.button("📍 Appliquer Coordonnées"):
+    if st.button("📍 Positionner le Sommet"):
         if node_name:
             if node_name not in st.session_state.nodes:
                 st.session_state.nodes.append(node_name)
             st.session_state.positions[node_name] = {"x": pos_x, "y": pos_y}
-            st.success(f"Sommet **{node_name}** conservé et positionné.")
+            st.success(f"Sommet **{node_name}** enregistré.")
             st.rerun()
 
     st.markdown("---")
 
-    # 3. AJOUT D'UNE ARÊTE ET INTERVALLES (INCLUANT INF)
-    st.subheader("🔗 Ajouter une Connexion")
+    # 2. AJOUT D'UNE ARÊTE ET INTERVALLE DE COÛTS
+    st.subheader("🔗 Ajouter une Connexion (Orientée)")
     nodes_sorted = sorted(list(set(st.session_state.nodes)))
     if len(nodes_sorted) >= 2:
         c_src, c_dst = st.columns(2)
@@ -85,7 +77,7 @@ with st.sidebar:
         with c_dst:
             dst = st.selectbox("Destination :", nodes_sorted, key="edge_dst")
             
-        interval_type = st.radio("Type d'intervalle :", ["Borné [ℓₑ, uₑ]", "Infini ]0, +∞["], key="interval_type")
+        interval_type = st.radio("Intervalle de Coût :", ["Infini ]0, +∞[", "Borné [ℓₑ, uₑ]"], key="interval_type")
         
         if interval_type == "Borné [ℓₑ, uₑ]":
             c_l, c_u = st.columns(2)
@@ -97,13 +89,11 @@ with st.sidebar:
         else:
             l_e = 0.0
             u_e = float("inf")
-            real_c = st.number_input("Coût Réel estimé (cₑ) :", min_value=0.1, value=1.0, step=0.5)
+            real_c = st.number_input("Coût Réel (cₑ) :", min_value=0.1, value=1.0, step=0.5)
             
         if st.button("Connecter"):
             if src == dst:
-                st.error("Impossible de créer une boucle.")
-            elif l_e >= u_e:
-                st.error("ℓₑ doit être strictement inférieur à uₑ.")
+                st.error("Les boules sur le même nœud sont interdites.")
             else:
                 st.session_state.edges.append({
                     "source": src,
@@ -112,21 +102,23 @@ with st.sidebar:
                     "u_e": u_e,
                     "real_c": real_c
                 })
-                st.success(f"Connexion {src} ➔ {dst} créée !")
+                st.success(f"Arête {src} ➔ {dst} ajoutée !")
                 st.rerun()
 
     st.markdown("---")
     
-    # 4. SUPPRESSION INDIVIDUELLE
-    st.subheader("🗑️ Suppression Individuelle")
+    # 3. SUPPRESSION
+    st.subheader("🗑️ Supprimer")
     node_to_del = st.selectbox("Supprimer un sommet :", ["-- Aucun --"] + nodes_sorted)
     if st.button("❌ Supprimer le Sommet"):
-        if node_to_del != "-- Aucun --":
+        if node_to_del not in ["-- Aucun --", "s", "t"]:
             st.session_state.nodes.remove(node_to_del)
             st.session_state.positions.pop(node_to_del, None)
             st.session_state.edges = [e for e in st.session_state.edges if e["source"] != node_to_del and e["target"] != node_to_del]
             st.success(f"Sommet {node_to_del} supprimé.")
             st.rerun()
+        elif node_to_del in ["s", "t"]:
+            st.error("Les nœuds s et t ne peuvent pas être supprimés.")
 
     edge_list_str = [f"{e['source']} ➔ {e['target']}" for e in st.session_state.edges]
     edge_to_del = st.selectbox("Supprimer une connexion :", ["-- Aucune --"] + edge_list_str)
@@ -134,20 +126,17 @@ with st.sidebar:
         if edge_to_del != "-- Aucune --":
             idx_del = edge_list_str.index(edge_to_del) - 1
             del st.session_state.edges[idx_del]
-            st.success("Connexion supprimée.")
             st.rerun()
 
     st.markdown("---")
-    
-    # 5. RESET
-    if st.button("⚠️ Vider tout (Revenir à s et t)"):
+    if st.button("⚠️ Vider tout (Garder s et t)"):
         st.session_state.nodes = ["s", "t"]
         st.session_state.positions = {"s": {"x": -2.5, "y": 0.0}, "t": {"x": 2.5, "y": 0.0}}
         st.session_state.edges = []
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# CANVAS HTML5 / JAVASCRIPT
+# CANVAS INTERACTIF HTML5
 # -----------------------------------------------------------------------------
 def build_interactive_canvas_html():
     nodes_json = json.dumps(st.session_state.nodes)
@@ -167,12 +156,12 @@ def build_interactive_canvas_html():
     <html>
     <head>
         <style>
-            body {{ margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; }}
+            body {{ margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; user-select: none; }}
             #canvas-container {{ position: relative; width: 100%; height: 500px; background-color: #FAFAFA; border: 1px solid #CBD5E1; border-radius: 8px; }}
             canvas {{ display: block; width: 100%; height: 100%; cursor: grab; }}
             canvas:active {{ cursor: grabbing; }}
             .controls {{ position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; z-index: 10; }}
-            .btn {{ background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; padding: 6px 12px; font-weight: bold; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+            .btn {{ background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; padding: 6px 12px; font-weight: bold; cursor: pointer; }}
             .btn:hover {{ background: #F1F5F9; }}
         </style>
     </head>
@@ -198,13 +187,8 @@ def build_interactive_canvas_html():
             let showGrid = {show_grid_js};
 
             let scale = 60;
-            let offsetX = 0;
-            let offsetY = 0;
-
-            let isDraggingNode = false;
-            let draggedNode = null;
-            let isPanning = false;
-            let startX, startY;
+            let offsetX = 0, offsetY = 0;
+            let isDraggingNode = false, draggedNode = null, isPanning = false, startX, startY;
 
             function resizeCanvas() {{
                 canvas.width = container.clientWidth;
@@ -235,12 +219,10 @@ def build_interactive_canvas_html():
                 if (showGrid) {{
                     ctx.strokeStyle = '#E2E8F0';
                     ctx.lineWidth = 1;
-                    const startGridX = offsetX % scale;
-                    for (let x = startGridX; x < canvas.width; x += scale) {{
+                    for (let x = offsetX % scale; x < canvas.width; x += scale) {{
                         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
                     }}
-                    const startGridY = offsetY % scale;
-                    for (let y = startGridY; y < canvas.height; y += scale) {{
+                    for (let y = offsetY % scale; y < canvas.height; y += scale) {{
                         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
                     }}
 
@@ -259,26 +241,20 @@ def build_interactive_canvas_html():
 
                         ctx.strokeStyle = '#64748B';
                         ctx.lineWidth = 2;
-                        ctx.beginPath();
-                        ctx.moveTo(x1, y1);
-                        ctx.lineTo(x2, y2);
-                        ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
 
                         const angle = Math.atan2(y2 - y1, x2 - x1);
-                        const headlen = 12;
-                        const targetRadius = 20;
-                        const fx = x2 - targetRadius * Math.cos(angle);
-                        const fy = y2 - targetRadius * Math.sin(angle);
+                        const fx = x2 - 20 * Math.cos(angle);
+                        const fy = y2 - 20 * Math.sin(angle);
 
                         ctx.fillStyle = '#64748B';
                         ctx.beginPath();
                         ctx.moveTo(fx, fy);
-                        ctx.lineTo(fx - headlen * Math.cos(angle - Math.PI / 6), fy - headlen * Math.sin(angle - Math.PI / 6));
-                        ctx.lineTo(fx - headlen * Math.cos(angle + Math.PI / 6), fy - headlen * Math.sin(angle + Math.PI / 6));
+                        ctx.lineTo(fx - 12 * Math.cos(angle - Math.PI / 6), fy - 12 * Math.sin(angle - Math.PI / 6));
+                        ctx.lineTo(fx - 12 * Math.cos(angle + Math.PI / 6), fy - 12 * Math.sin(angle + Math.PI / 6));
                         ctx.fill();
 
-                        const mx = (x1 + x2) / 2;
-                        const my = (y1 + y2) / 2;
+                        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
                         const upperStr = e.u_e === "Infinity" ? "∞" : e.u_e;
                         const lbl = `]${{e.l_e}}, ${{upperStr}}[ | c=${{e.real_c}}`;
                         ctx.font = '11px sans-serif';
@@ -287,12 +263,10 @@ def build_interactive_canvas_html():
                         ctx.fillStyle = '#FFFFFF';
                         ctx.fillRect(mx - textWidth / 2 - 4, my - 10, textWidth + 8, 16);
                         ctx.strokeStyle = '#CBD5E1';
-                        ctx.lineWidth = 1;
                         ctx.strokeRect(mx - textWidth / 2 - 4, my - 10, textWidth + 8, 16);
 
                         ctx.fillStyle = '#334155';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                         ctx.fillText(lbl, mx, my);
                     }}
                 }});
@@ -306,23 +280,15 @@ def build_interactive_canvas_html():
                     if (n === 's') {{ fillBg = '#DCFCE7'; strokeColor = '#16A34A'; textColor = '#15803D'; }}
                     else if (n === 't') {{ fillBg = '#FEE2E2'; strokeColor = '#DC2626'; textColor = '#B91C1C'; }}
 
-                    ctx.fillStyle = fillBg;
-                    ctx.strokeStyle = strokeColor;
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.arc(sx, sy, 20, 0, 2 * Math.PI);
-                    ctx.fill();
-                    ctx.stroke();
+                    ctx.fillStyle = fillBg; ctx.strokeStyle = strokeColor; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(sx, sy, 20, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
 
-                    ctx.fillStyle = textColor;
-                    ctx.font = 'bold 12px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = textColor; ctx.font = 'bold 12px sans-serif';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                     ctx.fillText(n, sx, sy);
 
                     if (showGrid) {{
-                        ctx.fillStyle = '#475569';
-                        ctx.font = '10px sans-serif';
+                        ctx.fillStyle = '#475569'; ctx.font = '10px sans-serif';
                         ctx.fillText(`(${{positions[n].x.toFixed(1)}}, ${{positions[n].y.toFixed(1)}})`, sx, sy + 28);
                     }}
                 }});
@@ -330,72 +296,45 @@ def build_interactive_canvas_html():
 
             canvas.addEventListener('mousedown', (e) => {{
                 const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
+                const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
 
                 for (let n of nodes) {{
-                    const sx = toScreenX(positions[n].x);
-                    const sy = toScreenY(positions[n].y);
-                    const dist = Math.hypot(mouseX - sx, mouseY - sy);
-                    if (dist <= 20) {{
-                        isDraggingNode = true;
-                        draggedNode = n;
-                        return;
+                    const sx = toScreenX(positions[n].x), sy = toScreenY(positions[n].y);
+                    if (Math.hypot(mouseX - sx, mouseY - sy) <= 20) {{
+                        isDraggingNode = true; draggedNode = n; return;
                     }}
                 }}
-
-                isPanning = true;
-                startX = mouseX - offsetX;
-                startY = mouseY - offsetY;
+                isPanning = true; startX = mouseX - offsetX; startY = mouseY - offsetY;
             }});
 
             canvas.addEventListener('mousemove', (e) => {{
                 const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
+                const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
 
                 if (isDraggingNode && draggedNode) {{
                     positions[draggedNode].x = parseFloat(toMathX(mouseX).toFixed(1));
                     positions[draggedNode].y = parseFloat(toMathY(mouseY).toFixed(1));
                     draw();
                 }} else if (isPanning) {{
-                    offsetX = mouseX - startX;
-                    offsetY = mouseY - startY;
-                    draw();
+                    offsetX = mouseX - startX; offsetY = mouseY - startY; draw();
                 }}
             }});
 
             canvas.addEventListener('mouseup', () => {{ 
-                if (isDraggingNode) {{
-                    savePositionsToStreamlit();
-                }}
-                isDraggingNode = false; 
-                draggedNode = null; 
-                isPanning = false; 
+                if (isDraggingNode) savePositionsToStreamlit();
+                isDraggingNode = false; draggedNode = null; isPanning = false; 
             }});
 
             canvas.addEventListener('wheel', (e) => {{
-                e.preventDefault();
-                const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-                scale *= zoomFactor;
-                draw();
+                e.preventDefault(); scale *= e.deltaY < 0 ? 1.1 : 0.9; draw();
             }});
 
             function zoomIn() {{ scale *= 1.2; draw(); }}
             function zoomOut() {{ scale *= 0.8; draw(); }}
-            function resetView() {{
-                scale = 60;
-                offsetX = canvas.width / 2;
-                offsetY = canvas.height / 2;
-                draw();
-            }}
-
+            function resetView() {{ scale = 60; offsetX = canvas.width / 2; offsetY = canvas.height / 2; draw(); }}
             function toggleFullScreen() {{
-                if (!document.fullscreenElement) {{
-                    container.requestFullscreen().catch(err => alert("Erreur plein écran"));
-                }} else {{
-                    document.exitFullscreen();
-                }}
+                if (!document.fullscreenElement) container.requestFullscreen();
+                else document.exitFullscreen();
             }}
 
             setTimeout(resizeCanvas, 100);
@@ -413,76 +352,61 @@ st.title("🔍 Le Jeu de l'Inspecteur - Graph Designer")
 col_main, col_info = st.columns([3, 2])
 
 with col_main:
-    st.subheader("🕸️ Cannevas Dynamique")
+    st.subheader("🕸️ Représentation du Graphe")
     components.html(build_interactive_canvas_html(), height=520)
 
 with col_info:
-    st.subheader("⚡ Résolution & Chemin Optimal")
+    st.subheader("⚡ Résolution du Chemin Optimal de s à t")
     
-    if st.button("🚀 Résoudre le Chemin Optimal & f(G, s, t, C)"):
+    if st.button("🚀 Calculer le Chemin Optimal & f(G, s, t, C)"):
         G = nx.DiGraph()
         for e in st.session_state.edges:
             G.add_edge(e["source"], e["target"], l_e=e["l_e"], u_e=e["u_e"], weight=e["real_c"])
 
-        src = st.session_state.source_node
-        dst = st.session_state.target_node
+        src, dst = "s", "t"
 
         if not nx.has_path(G, src, dst):
-            st.error(f"Aucun chemin orienté entre {src} et {dst}.")
+            st.error(f"Aucun chemin orienté valide ne relie la source '{src}' au puit '{dst}'.")
         else:
-            # 1. Calcul du chemin le plus court réel
+            # 1. Chemin le plus court selon les coûts réels de s à t
             shortest_path = nx.shortest_path(G, src, dst, weight="weight")
             shortest_cost = nx.shortest_path_length(G, src, dst, weight="weight")
             
-            st.success(f"**Chemin le plus court (coût réel cₑ) :** {' ➔ '.join(shortest_path)}")
-            st.info(f"**Coût Total Réel :** {shortest_cost}")
+            st.success(f"**Chemin Optimal de s à t :** {' ➔ '.join(shortest_path)}")
+            st.info(f"**Coût Total Réel (cₑ) :** {shortest_cost}")
 
-            # 2. Calcul de f(G, s, t, C)
+            # 2. Calcul exact de f(G, s, t, C) selon la théorie des ensembles d'inspection D_0
             paths = list(nx.all_simple_paths(G, src, dst))
-            all_infinite = all(e["u_e"] == float("inf") for e in st.session_state.edges)
             
-            if all_infinite:
-                edge_counts = {}
-                for p in paths:
-                    for i in range(len(p) - 1):
-                        edge = (p[i], p[i+1])
-                        edge_counts[edge] = edge_counts.get(edge, 0) + 1
-                
-                total_paths = len(paths)
-                essential_edges = [e for e in st.session_state.edges if (e["source"], e["target"]) not in [edge for edge, count in edge_counts.items() if count == total_paths]]
-                f_val = len(essential_edges)
-            else:
-                candidate_paths = []
-                for p in paths:
-                    min_cost = sum(G[p[i]][p[i+1]]["l_e"] for i in range(len(p)-1))
-                    max_cost = sum(G[p[i]][p[i+1]]["u_e"] for i in range(len(p)-1))
-                    candidate_paths.append({"path": p, "min": min_cost, "max": max_cost})
+            # Ensembles d'arêtes appartenant à au moins un chemin de s à t
+            edges_in_paths = set()
+            edge_counts = {}
+            for p in paths:
+                for i in range(len(p) - 1):
+                    e = (p[i], p[i+1])
+                    edges_in_paths.add(e)
+                    edge_counts[e] = edge_counts.get(e, 0) + 1
 
-                active_paths = []
-                for p1 in candidate_paths:
-                    is_dominated = False
-                    for p2 in candidate_paths:
-                        if p1["path"] != p2["path"] and p1["min"] >= p2["max"]:
-                            is_dominated = True
-                            break
-                    if not is_dominated:
-                        active_paths.append(p1["path"])
-
-                edges_in_active = set()
-                for p in active_paths:
-                    for i in range(len(p) - 1):
-                        edges_in_active.add((p[i], p[i+1]))
-
-                f_val = len(edges_in_active)
+            total_paths = len(paths)
+            
+            # Les ponts obligatoires sont présents sur TOUS les chemins de s à t
+            bridges = [e for e, count in edge_counts.items() if count == total_paths]
+            
+            # D_0 est l'ensemble des arêtes utiles Excluant les ponts obligatoires
+            D_0 = [e for e in edges_in_paths if e not in bridges]
+            f_val = len(D_0)
 
             st.metric(label="Valeur f(G, s, t, C)", value=f_val)
+            st.markdown(f"* **Nombre total de chemins simples de s à t :** {total_paths}")
+            st.markdown(f"* **Ponts obligatoires exclus (|B|) :** {len(bridges)}")
+            st.markdown(f"* **Taille de l'ensemble minimal D₀ :** {f_val}")
 
     st.markdown("---")
-    st.subheader("📊 Coordonnées Des Sommets")
-    pos_table = [{"Sommet": n, "Coord. X": st.session_state.positions.get(n, {}).get("x", 0.0), "Coord. Y": st.session_state.positions.get(n, {}).get("y", 0.0)} for n in st.session_state.nodes]
+    st.subheader("📊 Sommets & Coordonnées")
+    pos_table = [{"Sommet": n, "X": st.session_state.positions.get(n, {}).get("x", 0.0), "Y": st.session_state.positions.get(n, {}).get("y", 0.0)} for n in st.session_state.nodes]
     st.dataframe(pos_table, use_container_width=True)
 
-    st.subheader("🔗 Arêtes & Intervalles")
+    st.subheader("🔗 Arêtes de s à t")
     if st.session_state.edges:
         edge_table = []
         for e in st.session_state.edges:
