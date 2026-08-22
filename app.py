@@ -1,20 +1,21 @@
 import streamlit as st
 import networkx as nx
 import json
+import math
 import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
 # CONFIGURATION DE LA PAGE
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Jeu de l'Inspecteur - Canvas Interactif",
+    page_title="Jeu de l'Inspecteur - Graph Designer",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # -----------------------------------------------------------------------------
-# INITIALISATION DU SESSION STATE (GRAPHE INITIAL : UNIQUEMENT s ET t)
+# INITIALISATION DU SESSION STATE
 # -----------------------------------------------------------------------------
 if "nodes" not in st.session_state:
     st.session_state.nodes = ["s", "t"]
@@ -30,7 +31,20 @@ if "show_grid" not in st.session_state:
     st.session_state.show_grid = True
 
 # -----------------------------------------------------------------------------
-# BARRE LATÉRALE - DÉPLACEMENT, COORDONNÉES ET SUPPRESSION
+# RECUPERATION DES POSITIONS MISES À JOUR PAR LE DRAG & DROP DU CANVAS
+# -----------------------------------------------------------------------------
+query_params = st.query_params
+if "canvas_data" in query_params:
+    try:
+        updated_positions = json.loads(query_params["canvas_data"])
+        for node, pos in updated_positions.items():
+            if node in st.session_state.positions:
+                st.session_state.positions[node] = pos
+    except Exception:
+        pass
+
+# -----------------------------------------------------------------------------
+# BARRE LATÉRALE - CONTRÔLES ET CONFIGURATION DES ARÊTES
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.title("⚙️ Panneau de Contrôle")
@@ -56,12 +70,12 @@ with st.sidebar:
             if node_name not in st.session_state.nodes:
                 st.session_state.nodes.append(node_name)
             st.session_state.positions[node_name] = {"x": pos_x, "y": pos_y}
-            st.success(f"Sommet **{node_name}** positionné à ({pos_x}, {pos_y})")
+            st.success(f"Sommet **{node_name}** ajouté / mis à jour.")
             st.rerun()
 
     st.markdown("---")
 
-    # 3. AJOUT D'UNE ARÊTE
+    # 3. AJOUT D'UNE ARÊTE ET INTERVALLES (INCLUANT INF)
     st.subheader("🔗 Ajouter une Connexion")
     nodes_sorted = sorted(list(set(st.session_state.nodes)))
     if len(nodes_sorted) >= 2:
@@ -71,21 +85,25 @@ with st.sidebar:
         with c_dst:
             dst = st.selectbox("Destination :", nodes_sorted, key="edge_dst")
             
-        c_l, c_u = st.columns(2)
-        with c_l:
-            l_e = st.number_input("Borne inf (ℓₑ) :", min_value=0.0, value=1.0, step=0.5)
-        with c_u:
-            u_e = st.number_input("Borne sup (uₑ) :", min_value=0.0, value=5.0, step=0.5)
-            
-        real_c = st.number_input("Coût Réel (cₑ) :", min_value=0.0, value=2.0, step=0.5)
+        interval_type = st.radio("Type d'intervalle :", ["Borné [ℓₑ, uₑ]", "Infini ]0, +∞["], key="interval_type")
         
+        if interval_type == "Borné [ℓₑ, uₑ]":
+            c_l, c_u = st.columns(2)
+            with c_l:
+                l_e = st.number_input("Borne inf (ℓₑ) :", min_value=0.0, value=1.0, step=0.5)
+            with c_u:
+                u_e = st.number_input("Borne sup (uₑ) :", min_value=0.0, value=5.0, step=0.5)
+            real_c = st.number_input("Coût Réel (cₑ) :", min_value=0.0, value=2.0, step=0.5)
+        else:
+            l_e = 0.0
+            u_e = float("inf")
+            real_c = st.number_input("Coût Réel estimé (cₑ) :", min_value=0.1, value=1.0, step=0.5)
+            
         if st.button("Connecter"):
             if src == dst:
                 st.error("Impossible de créer une boucle.")
-            elif l_e > u_e:
-                st.error("ℓₑ doit être ≤ uₑ.")
-            elif not (l_e <= real_c <= u_e):
-                st.error("cₑ doit appartenir à [ℓₑ, uₑ] !")
+            elif l_e >= u_e:
+                st.error("ℓₑ doit être strictement inférieur à uₑ.")
             else:
                 st.session_state.edges.append({
                     "source": src,
@@ -121,22 +139,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # 5. EXPORT & REINITIALISATION
-    st.subheader("💾 Export & Reset")
-    config_data = {
-        "nodes": st.session_state.nodes,
-        "positions": st.session_state.positions,
-        "edges": st.session_state.edges,
-        "source_node": st.session_state.source_node,
-        "target_node": st.session_state.target_node
-    }
-    st.download_button(
-        label="📥 Exporter la Configuration (JSON)",
-        data=json.dumps(config_data, indent=4),
-        file_name="graphe_inspecteur.json",
-        mime="application/json"
-    )
-    
+    # 5. EXPORT & RESET
     if st.button("⚠️ Vider tout (Revenir à s et t)"):
         st.session_state.nodes = ["s", "t"]
         st.session_state.positions = {"s": {"x": -2.5, "y": 0.0}, "t": {"x": 2.5, "y": 0.0}}
@@ -149,7 +152,15 @@ with st.sidebar:
 def build_interactive_canvas_html():
     nodes_json = json.dumps(st.session_state.nodes)
     positions_json = json.dumps(st.session_state.positions)
-    edges_json = json.dumps(st.session_state.edges)
+    
+    # Remplacement des valeurs float('inf') pour la compatibilité JS
+    edges_copy = []
+    for e in st.session_state.edges:
+        e_c = dict(e)
+        if math.isinf(e_c["u_e"]):
+            e_c["u_e"] = "Infinity"
+        edges_copy.append(e_c)
+    edges_json = json.dumps(edges_copy)
     show_grid_js = "true" if st.session_state.show_grid else "false"
 
     html_code = f"""
@@ -157,7 +168,7 @@ def build_interactive_canvas_html():
     <html>
     <head>
         <style>
-            body {{ margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }}
+            body {{ margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; }}
             #canvas-container {{ position: relative; width: 100%; height: 500px; background-color: #FAFAFA; border: 1px solid #CBD5E1; border-radius: 8px; }}
             canvas {{ display: block; width: 100%; height: 100%; cursor: grab; }}
             canvas:active {{ cursor: grabbing; }}
@@ -213,6 +224,12 @@ def build_interactive_canvas_html():
             function toMathX(px) {{ return (px - offsetX) / scale; }}
             function toMathY(py) {{ return (offsetY - py) / scale; }}
 
+            function savePositionsToStreamlit() {{
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('canvas_data', JSON.stringify(positions));
+                window.parent.history.replaceState({{}}, '', url.toString());
+            }}
+
             function draw() {{
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -263,7 +280,8 @@ def build_interactive_canvas_html():
 
                         const mx = (x1 + x2) / 2;
                         const my = (y1 + y2) / 2;
-                        const lbl = `[${{e.l_e}}, ${{e.u_e}}] | c=${{e.real_c}}`;
+                        const upperStr = e.u_e === "Infinity" ? "∞" : e.u_e;
+                        const lbl = `]${{e.l_e}}, ${{upperStr}}[ | c=${{e.real_c}}`;
                         ctx.font = '11px sans-serif';
                         const textWidth = ctx.measureText(lbl).width;
 
@@ -348,7 +366,14 @@ def build_interactive_canvas_html():
                 }}
             }});
 
-            canvas.addEventListener('mouseup', () => {{ isDraggingNode = false; draggedNode = null; isPanning = false; }});
+            canvas.addEventListener('mouseup', () => {{ 
+                if (isDraggingNode) {{
+                    savePositionsToStreamlit();
+                }}
+                isDraggingNode = false; 
+                draggedNode = null; 
+                isPanning = false; 
+            }});
 
             canvas.addEventListener('wheel', (e) => {{
                 e.preventDefault();
@@ -385,49 +410,90 @@ def build_interactive_canvas_html():
 # INTERFACE PRINCIPALE DE L'APPLICATION
 # -----------------------------------------------------------------------------
 st.title("🔍 Le Jeu de l'Inspecteur - Graph Designer")
-st.markdown("Glissez-déposez les sommets avec la souris ou ajustez leurs coordonnées précises dans le panneau latéral.")
+st.markdown("Déplacez les nœuds à la souris ou saisissez leurs coordonnées. Les modifications sont conservées à chaque ajout.")
 
 col_main, col_info = st.columns([3, 2])
 
 with col_main:
-    st.subheader("🕸️ Vue Cannevas Dynamique")
+    st.subheader("🕸️ Vue Canevas Dynamique")
     components.html(build_interactive_canvas_html(), height=520)
 
 with col_info:
+    st.subheader("⚡ Resolution & Ensemble Suffisant f(G, s, t, C)")
+    
+    if st.button("🚀 Résoudre et Calculer f(G, s, t, C)"):
+        G = nx.DiGraph()
+        for e in st.session_state.edges:
+            G.add_edge(e["source"], e["target"], l_e=e["l_e"], u_e=e["u_e"], real_c=e["real_c"])
+
+        src = st.session_state.source_node
+        dst = st.session_state.target_node
+
+        if not nx.has_path(G, src, dst):
+            st.error(f"Aucun chemin orienté entre {src} et {dst}.")
+        else:
+            paths = list(nx.all_simple_paths(G, src, dst))
+            
+            # Détermination si tous les intervalles sont infinis ]0, +inf[
+            all_infinite = all(e["u_e"] == float("inf") for e in st.session_state.edges)
+            
+            if all_infinite:
+                # Dans le cas ]0, +inf[, D_0 exclut exactement les arêtes appartenant à TOUS les chemins simples
+                edge_counts = {}
+                for p in paths:
+                    for i in range(len(p) - 1):
+                        edge = (p[i], p[i+1])
+                        edge_counts[edge] = edge_counts.get(edge, 0) + 1
+                
+                total_paths = len(paths)
+                essential_edges = [e for e in st.session_state.edges if (e["source"], e["target"]) not in [edge for edge, count in edge_counts.items() if count == total_paths]]
+                bridges = [e for e in st.session_state.edges if (e["source"], e["target"]) in [edge for edge, count in edge_counts.items() if count == total_paths]]
+                
+                f_val = len(essential_edges)
+                st.success(f"**Valeur minimale f(G, s, t, C) = {f_val}**")
+                st.markdown(f"* **Nombre total d'arêtes |E| :** {len(st.session_state.edges)}")
+                st.markdown(f"* **Ponts obligatoires exclus :** {len(bridges)}")
+            else:
+                # Cas général borné : Filtrage par dominance
+                candidate_paths = []
+                for p in paths:
+                    min_cost = sum(G[p[i]][p[i+1]]["l_e"] for i in range(len(p)-1))
+                    max_cost = sum(G[p[i]][p[i+1]]["u_e"] for i in range(len(p)-1))
+                    candidate_paths.append({"path": p, "min": min_cost, "max": max_cost})
+
+                # Élimination des chemins dominés
+                active_paths = []
+                for p1 in candidate_paths:
+                    is_dominated = False
+                    for p2 in candidate_paths:
+                        if p1["path"] != p2["path"] and p1["min"] >= p2["max"]:
+                            is_dominated = True
+                            break
+                    if not is_dominated:
+                        active_paths.append(p1["path"])
+
+                edges_in_active = set()
+                for p in active_paths:
+                    for i in range(len(p) - 1):
+                        edges_in_active.add((p[i], p[i+1]))
+
+                f_val = len(edges_in_active)
+                st.success(f"**Valeur minimale f(G, s, t, C) = {f_val}**")
+                st.markdown(f"* **Chemins candidats non-dominés :** {len(active_paths)} / {len(paths)}")
+
+    st.markdown("---")
     st.subheader("📊 Coordonnées Cartésiennes")
-    pos_table = []
-    for n in st.session_state.nodes:
-        pos = st.session_state.positions.get(n, {"x": 0.0, "y": 0.0})
-        pos_table.append({"Sommet": n, "Coord. X": pos["x"], "Coord. Y": pos["y"]})
+    pos_table = [{"Sommet": n, "Coord. X": st.session_state.positions.get(n, {}).get("x", 0.0), "Coord. Y": st.session_state.positions.get(n, {}).get("y", 0.0)} for n in st.session_state.nodes]
     st.dataframe(pos_table, use_container_width=True)
 
     st.subheader("🔗 Connexions & Intervalles")
     if st.session_state.edges:
         edge_table = []
         for e in st.session_state.edges:
+            u_str = "∞" if math.isinf(e['u_e']) else str(e['u_e'])
             edge_table.append({
                 "Arête": f"{e['source']} ➔ {e['target']}",
-                "Intervalle [ℓₑ, uₑ]": f"[{e['l_e']}, {e['u_e']}]",
+                "Intervalle ]ℓₑ, uₑ[": f"]{e['l_e']}, {u_str}[",
                 "Coût Réel (cₑ)": e['real_c']
             })
         st.dataframe(edge_table, use_container_width=True)
-
-        G = nx.DiGraph()
-        for e in st.session_state.edges:
-            G.add_edge(e["source"], e["target"], weight=e["real_c"])
-
-        src = st.session_state.source_node
-        dst = st.session_state.target_node
-
-        if nx.has_path(G, src, dst):
-            all_paths = list(nx.all_simple_paths(G, src, dst))
-            st.markdown(f"**Chemins simples de {src} à {dst} ({len(all_paths)}) :**")
-            path_details = []
-            for idx, p in enumerate(all_paths, 1):
-                cost = sum(G[p[i]][p[i+1]]["weight"] for i in range(len(p)-1))
-                path_details.append({"Chemin": " ➔ ".join(p), "Coût Total": cost})
-            st.dataframe(path_details, use_container_width=True)
-        else:
-            st.info(f"Aucun chemin orienté entre {src} et {dst}.")
-    else:
-        st.write("Aucune connexion.")
