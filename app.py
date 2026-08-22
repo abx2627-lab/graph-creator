@@ -31,7 +31,7 @@ if "show_grid" not in st.session_state:
     st.session_state.show_grid = True
 
 # -----------------------------------------------------------------------------
-# RECUPERATION DES POSITIONS MISES À JOUR PAR LE DRAG & DROP DU CANVAS
+# RECUPERATION DES POSITIONS MISES À JOUR (EVITE LE RESET)
 # -----------------------------------------------------------------------------
 query_params = st.query_params
 if "canvas_data" in query_params:
@@ -70,7 +70,7 @@ with st.sidebar:
             if node_name not in st.session_state.nodes:
                 st.session_state.nodes.append(node_name)
             st.session_state.positions[node_name] = {"x": pos_x, "y": pos_y}
-            st.success(f"Sommet **{node_name}** ajouté / mis à jour.")
+            st.success(f"Sommet **{node_name}** conservé et positionné.")
             st.rerun()
 
     st.markdown("---")
@@ -139,7 +139,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # 5. EXPORT & RESET
+    # 5. RESET
     if st.button("⚠️ Vider tout (Revenir à s et t)"):
         st.session_state.nodes = ["s", "t"]
         st.session_state.positions = {"s": {"x": -2.5, "y": 0.0}, "t": {"x": 2.5, "y": 0.0}}
@@ -147,13 +147,12 @@ with st.sidebar:
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# DESSIN DYNAMIQUE DU CANVAS HTML5 / JAVASCRIPT
+# CANVAS HTML5 / JAVASCRIPT
 # -----------------------------------------------------------------------------
 def build_interactive_canvas_html():
     nodes_json = json.dumps(st.session_state.nodes)
     positions_json = json.dumps(st.session_state.positions)
     
-    # Remplacement des valeurs float('inf') pour la compatibilité JS
     edges_copy = []
     for e in st.session_state.edges:
         e_c = dict(e)
@@ -407,24 +406,23 @@ def build_interactive_canvas_html():
     return html_code
 
 # -----------------------------------------------------------------------------
-# INTERFACE PRINCIPALE DE L'APPLICATION
+# INTERFACE PRINCIPALE
 # -----------------------------------------------------------------------------
 st.title("🔍 Le Jeu de l'Inspecteur - Graph Designer")
-st.markdown("Déplacez les nœuds à la souris ou saisissez leurs coordonnées. Les modifications sont conservées à chaque ajout.")
 
 col_main, col_info = st.columns([3, 2])
 
 with col_main:
-    st.subheader("🕸️ Vue Canevas Dynamique")
+    st.subheader("🕸️ Cannevas Dynamique")
     components.html(build_interactive_canvas_html(), height=520)
 
 with col_info:
-    st.subheader("⚡ Resolution & Ensemble Suffisant f(G, s, t, C)")
+    st.subheader("⚡ Résolution & Chemin Optimal")
     
-    if st.button("🚀 Résoudre et Calculer f(G, s, t, C)"):
+    if st.button("🚀 Résoudre le Chemin Optimal & f(G, s, t, C)"):
         G = nx.DiGraph()
         for e in st.session_state.edges:
-            G.add_edge(e["source"], e["target"], l_e=e["l_e"], u_e=e["u_e"], real_c=e["real_c"])
+            G.add_edge(e["source"], e["target"], l_e=e["l_e"], u_e=e["u_e"], weight=e["real_c"])
 
         src = st.session_state.source_node
         dst = st.session_state.target_node
@@ -432,13 +430,18 @@ with col_info:
         if not nx.has_path(G, src, dst):
             st.error(f"Aucun chemin orienté entre {src} et {dst}.")
         else:
-            paths = list(nx.all_simple_paths(G, src, dst))
+            # 1. Calcul du chemin le plus court réel
+            shortest_path = nx.shortest_path(G, src, dst, weight="weight")
+            shortest_cost = nx.shortest_path_length(G, src, dst, weight="weight")
             
-            # Détermination si tous les intervalles sont infinis ]0, +inf[
+            st.success(f"**Chemin le plus court (coût réel cₑ) :** {' ➔ '.join(shortest_path)}")
+            st.info(f"**Coût Total Réel :** {shortest_cost}")
+
+            # 2. Calcul de f(G, s, t, C)
+            paths = list(nx.all_simple_paths(G, src, dst))
             all_infinite = all(e["u_e"] == float("inf") for e in st.session_state.edges)
             
             if all_infinite:
-                # Dans le cas ]0, +inf[, D_0 exclut exactement les arêtes appartenant à TOUS les chemins simples
                 edge_counts = {}
                 for p in paths:
                     for i in range(len(p) - 1):
@@ -447,21 +450,14 @@ with col_info:
                 
                 total_paths = len(paths)
                 essential_edges = [e for e in st.session_state.edges if (e["source"], e["target"]) not in [edge for edge, count in edge_counts.items() if count == total_paths]]
-                bridges = [e for e in st.session_state.edges if (e["source"], e["target"]) in [edge for edge, count in edge_counts.items() if count == total_paths]]
-                
                 f_val = len(essential_edges)
-                st.success(f"**Valeur minimale f(G, s, t, C) = {f_val}**")
-                st.markdown(f"* **Nombre total d'arêtes |E| :** {len(st.session_state.edges)}")
-                st.markdown(f"* **Ponts obligatoires exclus :** {len(bridges)}")
             else:
-                # Cas général borné : Filtrage par dominance
                 candidate_paths = []
                 for p in paths:
                     min_cost = sum(G[p[i]][p[i+1]]["l_e"] for i in range(len(p)-1))
                     max_cost = sum(G[p[i]][p[i+1]]["u_e"] for i in range(len(p)-1))
                     candidate_paths.append({"path": p, "min": min_cost, "max": max_cost})
 
-                # Élimination des chemins dominés
                 active_paths = []
                 for p1 in candidate_paths:
                     is_dominated = False
@@ -478,15 +474,15 @@ with col_info:
                         edges_in_active.add((p[i], p[i+1]))
 
                 f_val = len(edges_in_active)
-                st.success(f"**Valeur minimale f(G, s, t, C) = {f_val}**")
-                st.markdown(f"* **Chemins candidats non-dominés :** {len(active_paths)} / {len(paths)}")
+
+            st.metric(label="Valeur f(G, s, t, C)", value=f_val)
 
     st.markdown("---")
-    st.subheader("📊 Coordonnées Cartésiennes")
+    st.subheader("📊 Coordonnées Des Sommets")
     pos_table = [{"Sommet": n, "Coord. X": st.session_state.positions.get(n, {}).get("x", 0.0), "Coord. Y": st.session_state.positions.get(n, {}).get("y", 0.0)} for n in st.session_state.nodes]
     st.dataframe(pos_table, use_container_width=True)
 
-    st.subheader("🔗 Connexions & Intervalles")
+    st.subheader("🔗 Arêtes & Intervalles")
     if st.session_state.edges:
         edge_table = []
         for e in st.session_state.edges:
