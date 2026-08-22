@@ -1,5 +1,6 @@
 import streamlit as st
 import networkx as nx
+import json
 import streamlit.components.v1 as components
 from pyvis.network import Network
 
@@ -13,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Style CSS épuré et ultra-rapide
+# Style CSS épuré et moderne
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -72,7 +73,7 @@ st.markdown("""
 # INITIALISATION DE LA SESSION
 # -----------------------------------------------------------------------------
 if "nodes" not in st.session_state:
-    st.session_state.nodes = set(["s", "t", "v1", "v2"])
+    st.session_state.nodes = ["s", "t", "v1", "v2"]
 if "edges" not in st.session_state:
     st.session_state.edges = [
         {"source": "s", "target": "v1", "l_e": 1.0, "u_e": 5.0, "real_c": 2.5},
@@ -84,6 +85,11 @@ if "source_node" not in st.session_state:
     st.session_state.source_node = "s"
 if "target_node" not in st.session_state:
     st.session_state.target_node = "t"
+if "layout_mode" not in st.session_state:
+    st.session_state.layout_mode = "Règle & Grille Alignée"
+
+# Convertir la liste de sommets en ensemble trié pour affichage
+nodes_sorted = sorted(list(set(st.session_state.nodes)))
 
 # -----------------------------------------------------------------------------
 # BARRE LATÉRALE (SIDEBAR)
@@ -92,9 +98,54 @@ with st.sidebar:
     st.title("⚙️ Panneau de Contrôle")
     st.markdown("---")
     
-    # 1. Sélection Source & Puits
+    # --- SECTION SAUVEGARDE ET CHARGEMENT ---
+    st.subheader("💾 Sauvegarde & Chargement")
+    
+    # 1. Export JSON
+    config_data = {
+        "nodes": list(st.session_state.nodes),
+        "edges": st.session_state.edges,
+        "source_node": st.session_state.source_node,
+        "target_node": st.session_state.target_node
+    }
+    json_str = json.dumps(config_data, indent=4)
+    
+    st.download_button(
+        label="📥 Exporter la Configuration (JSON)",
+        data=json_str,
+        file_name="graphe_setup.json",
+        mime="application/json"
+    )
+    
+    # 2. Import JSON
+    uploaded_file = st.file_uploader("📂 Importer un fichier de configuration", type=["json"])
+    if uploaded_file is not None:
+        try:
+            imported_data = json.load(uploaded_file)
+            st.session_state.nodes = list(imported_data.get("nodes", ["s", "t"]))
+            st.session_state.edges = imported_data.get("edges", [])
+            st.session_state.source_node = imported_data.get("source_node", "s")
+            st.session_state.target_node = imported_data.get("target_node", "t")
+            st.success("Configuration chargée avec succès !")
+            st.rerun()
+        except Exception as e:
+            st.error("Erreur lors de la lecture du fichier JSON.")
+
+    st.markdown("---")
+    
+    # --- DISPOSITION / ALIGNEMENT (STYLE RÈGLE) ---
+    st.subheader("📐 Disposition du Graphe")
+    layout_choice = st.radio(
+        "Mode d'alignement :",
+        ["Règle & Grille Alignée", "Dynamique (Libre)"],
+        index=0 if st.session_state.layout_mode == "Règle & Grille Alignée" else 1
+    )
+    st.session_state.layout_mode = layout_choice
+
+    st.markdown("---")
+
+    # 1. Configuration des Sommets
     st.subheader("1. Configuration des Sommets")
-    nodes_sorted = sorted(list(st.session_state.nodes))
     st.session_state.source_node = st.selectbox(
         "Sommet Source (s) :", 
         nodes_sorted, 
@@ -114,7 +165,7 @@ with st.sidebar:
     if st.button("➕ Ajouter Sommet"):
         if new_node:
             if new_node not in st.session_state.nodes:
-                st.session_state.nodes.add(new_node)
+                st.session_state.nodes.append(new_node)
                 st.success(f"Sommet **{new_node}** ajouté !")
                 st.rerun()
             else:
@@ -126,7 +177,7 @@ with st.sidebar:
     
     # 3. Ajout d'Arête Orientée
     st.subheader("3. Ajouter une Arête Orientée")
-    if len(st.session_state.nodes) >= 2:
+    if len(nodes_sorted) >= 2:
         col_src, col_dst = st.columns(2)
         with col_src:
             src = st.selectbox("Origine :", nodes_sorted, key="edge_src")
@@ -163,7 +214,7 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("🗑️ Réinitialiser le Graphe"):
-        st.session_state.nodes = set(["s", "t", "v1", "v2"])
+        st.session_state.nodes = ["s", "t", "v1", "v2"]
         st.session_state.edges = []
         st.session_state.source_node = "s"
         st.session_state.target_node = "t"
@@ -175,35 +226,69 @@ with st.sidebar:
 st.markdown("""
 <div class="main-header">
     <h1>🔍 Le Jeu de l'Inspecteur sur Graphes à Coûts Incertains</h1>
-    <p>Conception et analyse de graphes orientés avec incertitudes d'intervalles [ℓₑ, uₑ].</p>
+    <p>Conception, alignement strict et analyse de graphes orientés avec incertitudes d'intervalles [ℓₑ, uₑ].</p>
 </div>
 """, unsafe_allow_html=True)
 
 col_graph, col_analysis = st.columns([3, 2])
 
 # -----------------------------------------------------------------------------
-# VISUALISATION ultra-rapide style exercice (PyVis / HTML)
+# VISUALISATION (Mode Alignement Règle & Grille / Mode Libres)
 # -----------------------------------------------------------------------------
 with col_graph:
     st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("🕸️ Représentation du Graphe (Style Exercice)")
+    st.subheader(f"🕸️ Visualisation du Graphe ({st.session_state.layout_mode})")
     
-    # Création du réseau PyVis
-    net = Network(height="450px", width="100%", directed=True, bgcolor="#FFFFFF", font_color="#000000")
+    net = Network(height="460px", width="100%", directed=True, bgcolor="#FFFFFF", font_color="#000000")
     
-    # Style de la physique pour une disposition claire et rapide
-    net.force_atlas_2based(gravity=-50, central_gravity=0.01, spring_length=120, spring_strength=0.08)
-    
-    # Ajout des Sommets avec le style de l'exercice
-    for n in st.session_state.nodes:
-        if n == st.session_state.source_node:
-            net.add_node(n, label=f"s ({n})", color="#22C55E", shape="circle", size=25, font={"size": 18, "color": "#FFFFFF", "bold": True})
-        elif n == st.session_state.target_node:
-            net.add_node(n, label=f"t ({n})", color="#EF4444", shape="circle", size=25, font={"size": 18, "color": "#FFFFFF", "bold": True})
-        else:
-            net.add_node(n, label=str(n), color="#3B82F6", shape="circle", size=20, font={"size": 16, "color": "#FFFFFF"})
+    # Détermination des coordonnées géométriques (Alignement à la Règle)
+    if st.session_state.layout_mode == "Règle & Grille Alignée":
+        net.toggle_physics(False)  # Désactiver la physique pour figer l'alignement rectiligne
+        
+        # Algorithme de placement sur grille géométrique
+        other_nodes = [n for n in nodes_sorted if n not in [st.session_state.source_node, st.session_state.target_node]]
+        
+        # Placer la source à gauche (x = -300)
+        net.add_node(
+            st.session_state.source_node, 
+            label=f"s ({st.session_state.source_node})", 
+            color="#22C55E", shape="circle", size=25, x=-350, y=0,
+            font={"size": 18, "color": "#FFFFFF", "bold": True}
+        )
+        
+        # Placer le puits à droite (x = +300)
+        net.add_node(
+            st.session_state.target_node, 
+            label=f"t ({st.session_state.target_node})", 
+            color="#EF4444", shape="circle", size=25, x=350, y=0,
+            font={"size": 18, "color": "#FFFFFF", "bold": True}
+        )
+        
+        # Placer les sommets intermédiaires alignés en colonnes rectilignes
+        n_inter = len(other_nodes)
+        if n_inter > 0:
+            step_y = 120
+            start_y = -((n_inter - 1) * step_y) / 2
+            for idx, n in enumerate(other_nodes):
+                # Disposition en double colonne si le nombre de sommets est grand
+                x_pos = -120 if idx % 2 == 0 else 120
+                y_pos = start_y + (idx // 2) * step_y if n_inter > 2 else start_y + idx * step_y
+                net.add_node(
+                    n, label=str(n), color="#3B82F6", shape="circle", size=22, x=x_pos, y=y_pos,
+                    font={"size": 16, "color": "#FFFFFF"}
+                )
+    else:
+        # Mode Dynamique
+        net.force_atlas_2based(gravity=-50, central_gravity=0.01, spring_length=120, spring_strength=0.08)
+        for n in nodes_sorted:
+            if n == st.session_state.source_node:
+                net.add_node(n, label=f"s ({n})", color="#22C55E", shape="circle", size=25, font={"size": 18, "color": "#FFFFFF", "bold": True})
+            elif n == st.session_state.target_node:
+                net.add_node(n, label=f"t ({n})", color="#EF4444", shape="circle", size=25, font={"size": 18, "color": "#FFFFFF", "bold": True})
+            else:
+                net.add_node(n, label=str(n), color="#3B82F6", shape="circle", size=20, font={"size": 16, "color": "#FFFFFF"})
 
-    # Ajout des Arêtes avec étiquettes d'intervalles ]ℓe, ue[ et coût c_e
+    # Ajout des Arêtes avec étiquettes d'intervalles [ℓe, ue] et coût réel c_e
     for e in st.session_state.edges:
         label_text = f" [{e['l_e']}, {e['u_e']}] \n c={e['real_c']} "
         net.add_edge(
@@ -215,11 +300,11 @@ with col_graph:
             font={"size": 12, "align": "top", "background": "#F1F5F9"}
         )
 
-    # Génération et affichage HTML ultra-rapide
+    # Rendu HTML rapide
     net.save_graph("graph.html")
     with open("graph.html", "r", encoding="utf-8") as f:
         html_code = f.read()
-    components.html(html_code, height=470)
+    components.html(html_code, height=480)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
