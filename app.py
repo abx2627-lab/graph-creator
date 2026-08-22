@@ -1,8 +1,11 @@
 import streamlit as st
 import networkx as nx
-from streamlit_agraph import agraph, Node, Edge, Config
+import streamlit.components.v1 as components
+from pyvis.network import Network
 
-# Configuration de la page et style moderne
+# -----------------------------------------------------------------------------
+# CONFIGURATION DE LA PAGE
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Jeu de l'Inspecteur - Graph Designer",
     page_icon="🔍",
@@ -10,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS personnalisé pour une interface moderne
+# Style CSS épuré et ultra-rapide
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -21,24 +24,23 @@ st.markdown("""
     
     .main-header {
         background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-        padding: 24px 32px;
-        border-radius: 12px;
+        padding: 20px 28px;
+        border-radius: 10px;
         color: white;
-        margin-bottom: 24px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
     }
     
     .main-header h1 {
         margin: 0;
-        font-size: 2rem;
+        font-size: 1.8rem;
         font-weight: 700;
         color: #F8FAFC;
     }
     
     .main-header p {
-        margin: 6px 0 0 0;
+        margin: 4px 0 0 0;
         color: #94A3B8;
-        font-size: 0.95rem;
+        font-size: 0.9rem;
     }
     
     .stButton>button {
@@ -49,42 +51,49 @@ st.markdown("""
         color: white;
         border: none;
         padding: 8px 16px;
-        transition: all 0.2s ease;
     }
     
     .stButton>button:hover {
         background-color: #1D4ED8;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
     }
     
     .card-box {
         background-color: #FFFFFF;
-        padding: 20px;
-        border-radius: 10px;
+        padding: 18px;
+        border-radius: 8px;
         border: 1px solid #E2E8F0;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
+        margin-bottom: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialisation de l'état de la session (Session State)
+# -----------------------------------------------------------------------------
+# INITIALISATION DE LA SESSION
+# -----------------------------------------------------------------------------
 if "nodes" not in st.session_state:
-    st.session_state.nodes = set(["s", "t"])
+    st.session_state.nodes = set(["s", "t", "v1", "v2"])
 if "edges" not in st.session_state:
-    st.session_state.edges = []
+    st.session_state.edges = [
+        {"source": "s", "target": "v1", "l_e": 1.0, "u_e": 5.0, "real_c": 2.5},
+        {"source": "v1", "target": "t", "l_e": 2.0, "u_e": 8.0, "real_c": 4.0},
+        {"source": "s", "target": "v2", "l_e": 1.0, "u_e": 10.0, "real_c": 3.0},
+        {"source": "v2", "target": "t", "l_e": 0.5, "u_e": 4.0, "real_c": 1.0}
+    ]
 if "source_node" not in st.session_state:
     st.session_state.source_node = "s"
 if "target_node" not in st.session_state:
     st.session_state.target_node = "t"
 
-# Barre Latérale de Contrôle
+# -----------------------------------------------------------------------------
+# BARRE LATÉRALE (SIDEBAR)
+# -----------------------------------------------------------------------------
 with st.sidebar:
     st.title("⚙️ Panneau de Contrôle")
     st.markdown("---")
     
-    # 1. Sommets Source / Destination
-    st.subheader("1. Configuration Globale")
+    # 1. Sélection Source & Puits
+    st.subheader("1. Configuration des Sommets")
     nodes_sorted = sorted(list(st.session_state.nodes))
     st.session_state.source_node = st.selectbox(
         "Sommet Source (s) :", 
@@ -99,9 +108,9 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # 2. Ajout de Sommet (Node)
+    # 2. Ajout de Sommet
     st.subheader("2. Ajouter un Sommet")
-    new_node = st.text_input("Nom du sommet (ex: v1, v2) :", key="node_input").strip()
+    new_node = st.text_input("Nom du sommet (ex: v3) :", key="node_input").strip()
     if st.button("➕ Ajouter Sommet"):
         if new_node:
             if new_node not in st.session_state.nodes:
@@ -111,11 +120,11 @@ with st.sidebar:
             else:
                 st.warning("Ce sommet existe déjà.")
         else:
-            st.error("Veuillez saisir un nom valide.")
+            st.error("Nom invalide.")
 
     st.markdown("---")
     
-    # 3. Ajout d'Arête (Edge) avec incertitudes et coût réel
+    # 3. Ajout d'Arête Orientée
     st.subheader("3. Ajouter une Arête Orientée")
     if len(st.session_state.nodes) >= 2:
         col_src, col_dst = st.columns(2)
@@ -128,17 +137,17 @@ with st.sidebar:
         with col_l:
             l_e = st.number_input("Borne inf (ℓₑ) :", min_value=0.0, value=1.0, step=0.5)
         with col_u:
-            u_e = st.number_input("Borne sup (uₑ) :", min_value=0.0, value=10.0, step=0.5)
+            u_e = st.number_input("Borne sup (uₑ) :", min_value=0.0, value=5.0, step=0.5)
             
-        real_c = st.number_input("Coût Réel (cₑ) :", min_value=0.0, value=5.0, step=0.5)
+        real_c = st.number_input("Coût Réel (cₑ) :", min_value=0.0, value=2.0, step=0.5)
         
         if st.button("🔗 Connecter les Sommets"):
             if src == dst:
                 st.error("Impossible de créer une boucle sur le même sommet.")
             elif l_e > u_e:
-                st.error("La borne inférieure ℓₑ doit être ≤ à la borne supérieure uₑ.")
+                st.error("La borne ℓₑ doit être ≤ uₑ.")
             elif not (l_e <= real_c <= u_e):
-                st.error("Le coût réel cₑ doit appartenir à l'intervalle [ℓₑ, uₑ] !")
+                st.error("Le coût réel cₑ doit appartenir à [ℓₑ, uₑ] !")
             else:
                 st.session_state.edges.append({
                     "source": src,
@@ -150,83 +159,88 @@ with st.sidebar:
                 st.success(f"Arête **{src} ➔ {dst}** ajoutée !")
                 st.rerun()
     else:
-        st.info("Ajoutez au moins deux sommets pour pouvoir créer des connexions.")
+        st.info("Ajoutez au moins deux sommets.")
 
     st.markdown("---")
     if st.button("🗑️ Réinitialiser le Graphe"):
-        st.session_state.nodes = set(["s", "t"])
+        st.session_state.nodes = set(["s", "t", "v1", "v2"])
         st.session_state.edges = []
         st.session_state.source_node = "s"
         st.session_state.target_node = "t"
         st.rerun()
 
-# Entête Principale
+# -----------------------------------------------------------------------------
+# PAGE PRINCIPALE
+# -----------------------------------------------------------------------------
 st.markdown("""
 <div class="main-header">
     <h1>🔍 Le Jeu de l'Inspecteur sur Graphes à Coûts Incertains</h1>
-    <p>Concevez des topologies de graphes, configurez les incertitudes d'intervalles [ℓₑ, uₑ] et analysez la structure des chemins.</p>
+    <p>Conception et analyse de graphes orientés avec incertitudes d'intervalles [ℓₑ, uₑ].</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Disposition principale en deux colonnes
 col_graph, col_analysis = st.columns([3, 2])
 
+# -----------------------------------------------------------------------------
+# VISUALISATION ultra-rapide style exercice (PyVis / HTML)
+# -----------------------------------------------------------------------------
 with col_graph:
     st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("🕸️ Visualisation Interactive du Graphe")
+    st.subheader("🕸️ Représentation du Graphe (Style Exercice)")
     
-    agraph_nodes = []
+    # Création du réseau PyVis
+    net = Network(height="450px", width="100%", directed=True, bgcolor="#FFFFFF", font_color="#000000")
+    
+    # Style de la physique pour une disposition claire et rapide
+    net.force_atlas_2based(gravity=-50, central_gravity=0.01, spring_length=120, spring_strength=0.08)
+    
+    # Ajout des Sommets avec le style de l'exercice
     for n in st.session_state.nodes:
         if n == st.session_state.source_node:
-            color = "#22C55E" # Vert pour la Source
+            net.add_node(n, label=f"s ({n})", color="#22C55E", shape="circle", size=25, font={"size": 18, "color": "#FFFFFF", "bold": True})
         elif n == st.session_state.target_node:
-            color = "#EF4444" # Rouge pour le Puits
+            net.add_node(n, label=f"t ({n})", color="#EF4444", shape="circle", size=25, font={"size": 18, "color": "#FFFFFF", "bold": True})
         else:
-            color = "#3B82F6" # Bleu pour les nœuds intermédiaires
-        agraph_nodes.append(Node(id=n, label=n, size=24, color=color))
-        
-    agraph_edges = []
+            net.add_node(n, label=str(n), color="#3B82F6", shape="circle", size=20, font={"size": 16, "color": "#FFFFFF"})
+
+    # Ajout des Arêtes avec étiquettes d'intervalles ]ℓe, ue[ et coût c_e
     for e in st.session_state.edges:
-        lbl = f"[{e['l_e']}, {e['u_e']}] | c={e['real_c']}"
-        agraph_edges.append(Edge(
-            source=e["source"],
-            target=e["target"],
-            label=lbl,
-            color="#64748B",
-            fontsize=12
-        ))
-        
-    config = Config(
-        width=700,
-        height=480,
-        directed=True,
-        physics=True,
-        hierarchical=False,
-        nodeHighlightBehavior=True,
-        highlightColor="#F59E0B"
-    )
+        label_text = f" [{e['l_e']}, {e['u_e']}] \n c={e['real_c']} "
+        net.add_edge(
+            e["source"], 
+            e["target"], 
+            label=label_text, 
+            color="#475569", 
+            arrows="to", 
+            font={"size": 12, "align": "top", "background": "#F1F5F9"}
+        )
+
+    # Génération et affichage HTML ultra-rapide
+    net.save_graph("graph.html")
+    with open("graph.html", "r", encoding="utf-8") as f:
+        html_code = f.read()
+    components.html(html_code, height=470)
     
-    if agraph_nodes:
-        agraph(nodes=agraph_nodes, edges=agraph_edges, config=config)
-    else:
-        st.info("Le graphe est actuellement vide.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
+# TABLEAU ET ANALYSE ALGORITHMIQUE
+# -----------------------------------------------------------------------------
 with col_analysis:
     st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("📊 Tableau des Arêtes & Analyse")
+    st.subheader("📊 Liste des Arêtes & Intervalles")
     
     if st.session_state.edges:
         table_data = []
         for e in st.session_state.edges:
             table_data.append({
                 "Arête": f"{e['source']} ➔ {e['target']}",
-                "Intervalle [ℓₑ, uₑ]": f"[{e['l_e']}, {e['u_e']}]",
+                "Intervalle ]ℓₑ, uₑ[": f"]{e['l_e']}, {e['u_e']}[",
                 "Coût Réel (cₑ)": e['real_c']
             })
         st.dataframe(table_data, use_container_width=True)
         
-        st.markdown("### 🔀 Chemins Simples s ➔ t")
+        st.markdown("### 🔀 Chemins Simples de s à t")
         G = nx.DiGraph()
         for e in st.session_state.edges:
             G.add_edge(e["source"], e["target"], weight=e["real_c"])
@@ -244,7 +258,7 @@ with col_analysis:
                 for i in range(len(p)-1):
                     cost += G[p[i]][p[i+1]]["weight"]
                 path_str = " ➔ ".join(p)
-                path_details.append({"Chemin": f"P{idx}: {path_str}", "Coût Total Réel": cost})
+                path_details.append({"Chemin": f"P{idx}: {path_str}", "Coût Total": cost})
             st.dataframe(path_details, use_container_width=True)
         else:
             st.info(f"Aucun chemin orienté n'existe entre **{src}** et **{dst}**.")
