@@ -43,7 +43,7 @@ with st.sidebar:
     st.markdown("---")
     
     # 2. AJOUT / MODIFICATION PAR COORDONNÉES (X, Y)
-    st.subheader("➕ Ajouter / Deplacer un Sommet")
+    st.subheader("➕ Ajouter / Déplacer un Sommet")
     node_name = st.text_input("Nom du sommet (ex: v1, s, t) :", value="v1").strip()
     col_x, col_y = st.columns(2)
     with col_x:
@@ -144,7 +144,7 @@ with st.sidebar:
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# DESSIN DYNAMIQUE DU CANVAS HTML5 / JAVASCRIPT (DRAG&DROP, ZOOM, PLEIN ÉCRAN)
+# DESSIN DYNAMIQUE DU CANVAS HTML5 / JAVASCRIPT
 # -----------------------------------------------------------------------------
 def build_interactive_canvas_html():
     nodes_json = json.dumps(st.session_state.nodes)
@@ -187,7 +187,7 @@ def build_interactive_canvas_html():
             let edges = {edges_json};
             let showGrid = {show_grid_js};
 
-            let scale = 60; // Pixels par unité cartésienne
+            let scale = 60;
             let offsetX = 0;
             let offsetY = 0;
 
@@ -202,7 +202,7 @@ def build_interactive_canvas_html():
                 if (offsetX === 0 && offsetY === 0) {{
                     offsetX = canvas.width / 2;
                     offsetY = canvas.height / 2;
-                }
+                }}
                 draw();
             }}
 
@@ -216,7 +216,6 @@ def build_interactive_canvas_html():
             function draw() {{
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                // 1. DESSINER LA GRILLE & LE REPÈRE
                 if (showGrid) {{
                     ctx.strokeStyle = '#E2E8F0';
                     ctx.lineWidth = 1;
@@ -229,14 +228,12 @@ def build_interactive_canvas_html():
                         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
                     }}
 
-                    // Axes X et Y principaux
                     ctx.strokeStyle = '#94A3B8';
                     ctx.lineWidth = 2;
                     ctx.beginPath(); ctx.moveTo(offsetX, 0); ctx.lineTo(offsetX, canvas.height); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, offsetY); ctx.lineTo(canvas.width, offsetY); ctx.stroke();
                 }}
 
-                // 2. DESSINER LES ARÊTES
                 edges.forEach(e => {{
                     if (positions[e.source] && positions[e.target]) {{
                         const x1 = toScreenX(positions[e.source].x);
@@ -244,7 +241,6 @@ def build_interactive_canvas_html():
                         const x2 = toScreenX(positions[e.target].x);
                         const y2 = toScreenY(positions[e.target].y);
 
-                        // Ligne
                         ctx.strokeStyle = '#64748B';
                         ctx.lineWidth = 2;
                         ctx.beginPath();
@@ -252,7 +248,6 @@ def build_interactive_canvas_html():
                         ctx.lineTo(x2, y2);
                         ctx.stroke();
 
-                        // Flèche
                         const angle = Math.atan2(y2 - y1, x2 - x1);
                         const headlen = 12;
                         const targetRadius = 20;
@@ -266,7 +261,6 @@ def build_interactive_canvas_html():
                         ctx.lineTo(fx - headlen * Math.cos(angle + Math.PI / 6), fy - headlen * Math.sin(angle + Math.PI / 6));
                         ctx.fill();
 
-                        // Label
                         const mx = (x1 + x2) / 2;
                         const my = (y1 + y2) / 2;
                         const lbl = `[${{e.l_e}}, ${{e.u_e}}] | c=${{e.real_c}}`;
@@ -286,7 +280,6 @@ def build_interactive_canvas_html():
                     }}
                 }});
 
-                // 3. DESSINER LES SOMMETS (BOULES CLAIRES)
                 nodes.forEach(n => {{
                     if (!positions[n]) positions[n] = {{ x: 0, y: 0 }};
                     const sx = toScreenX(positions[n].x);
@@ -296,7 +289,6 @@ def build_interactive_canvas_html():
                     if (n === 's') {{ fillBg = '#DCFCE7'; strokeColor = '#16A34A'; textColor = '#15803D'; }}
                     else if (n === 't') {{ fillBg = '#FEE2E2'; strokeColor = '#DC2626'; textColor = '#B91C1C'; }}
 
-                    // Cercle principal (Boule claire)
                     ctx.fillStyle = fillBg;
                     ctx.strokeStyle = strokeColor;
                     ctx.lineWidth = 3;
@@ -305,14 +297,12 @@ def build_interactive_canvas_html():
                     ctx.fill();
                     ctx.stroke();
 
-                    // Nom du Sommet
                     ctx.fillStyle = textColor;
                     ctx.font = 'bold 12px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     ctx.fillText(n, sx, sy);
 
-                    // Coordonnées
                     if (showGrid) {{
                         ctx.fillStyle = '#475569';
                         ctx.font = '10px sans-serif';
@@ -321,13 +311,11 @@ def build_interactive_canvas_html():
                 }});
             }}
 
-            // INTERACTION À LA SOURIS (DRAG & DROP DE SOMMET ET PANNING)
             canvas.addEventListener('mousedown', (e) => {{
                 const rect = canvas.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
 
-                // Vérifier si un sommet est cliqué
                 for (let n of nodes) {{
                     const sx = toScreenX(positions[n].x);
                     const sy = toScreenY(positions[n].y);
@@ -339,7 +327,6 @@ def build_interactive_canvas_html():
                     }}
                 }}
 
-                // Sinon, déplacer la vue (Pan)
                 isPanning = true;
                 startX = mouseX - offsetX;
                 startY = mouseY - offsetY;
@@ -363,7 +350,6 @@ def build_interactive_canvas_html():
 
             canvas.addEventListener('mouseup', () => {{ isDraggingNode = false; draggedNode = null; isPanning = false; }});
 
-            // ZOOM AVEC MOLETTE
             canvas.addEventListener('wheel', (e) => {{
                 e.preventDefault();
                 const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -371,7 +357,6 @@ def build_interactive_canvas_html():
                 draw();
             }});
 
-            // COMMANDES BOUTONS
             function zoomIn() {{ scale *= 1.2; draw(); }}
             function zoomOut() {{ scale *= 0.8; draw(); }}
             function resetView() {{
@@ -427,7 +412,6 @@ with col_info:
             })
         st.dataframe(edge_table, use_container_width=True)
 
-        # Calcul des chemins
         G = nx.DiGraph()
         for e in st.session_state.edges:
             G.add_edge(e["source"], e["target"], weight=e["real_c"])
