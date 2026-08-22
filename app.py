@@ -30,7 +30,7 @@ if "selected_edge" not in st.session_state:
 if "show_grid" not in st.session_state:
     st.session_state.show_grid = True
 
-# Sync positions & sélections via les query_params
+# Récupération des paramètres de vue (Zoom & Pan)
 query_params = st.query_params
 if "canvas_data" in query_params:
     try:
@@ -49,6 +49,11 @@ if "selected_edge" in query_params:
         st.session_state.selected_edge = json.loads(query_params["selected_edge"]) if query_params["selected_edge"] != "" else None
     except Exception:
         st.session_state.selected_edge = None
+
+# Lecture du scale et offset enregistrés
+view_scale = float(query_params.get("view_scale", 60))
+view_offset_x = float(query_params.get("view_offset_x", 0))
+view_offset_y = float(query_params.get("view_offset_y", 0))
 
 # -----------------------------------------------------------------------------
 # BARRE LATÉRALE - CONTRÔLES
@@ -117,7 +122,7 @@ with st.sidebar:
             
         if st.button("Connecter"):
             if src == dst:
-                st.error("Les boucles sur le même nœud sont interdites.")
+                st.error("Les boules sur le même nœud sont interdites.")
             else:
                 st.session_state.edges.append({
                     "source": src,
@@ -134,7 +139,6 @@ with st.sidebar:
     # 3. SUPPRESSION PRÉCISE VIA CLIC OU SÉLECTION
     st.subheader("🗑️ Supprimer un Élément")
 
-    # Supprimer l'élément sélectionné par le clic
     if st.session_state.selected_node:
         if st.button(f"❌ Supprimer le sommet '{st.session_state.selected_node}' par clic"):
             if st.session_state.selected_node in ["s", "t"]:
@@ -154,7 +158,6 @@ with st.sidebar:
             st.session_state.selected_edge = None
             st.rerun()
 
-    # Supprimer via la liste déroulante classique
     node_to_del = st.selectbox("Ou supprimer un sommet de la liste :", ["-- Aucun --"] + nodes_sorted)
     if st.button("❌ Supprimer Sommet Sélectionné (Liste)"):
         if node_to_del not in ["-- Aucun --", "s", "t"]:
@@ -185,7 +188,7 @@ with st.sidebar:
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# CANVAS INTERACTIF HTML5 AVEC DÉTECTION DE CLIC
+# CANVAS INTERACTIF HTML5 AVEC PERSISTENCE DU ZOOM ET DU DÉCALAGE
 # -----------------------------------------------------------------------------
 def build_interactive_canvas_html():
     nodes_json = json.dumps(st.session_state.nodes)
@@ -239,8 +242,10 @@ def build_interactive_canvas_html():
             let selectedEdge = {selected_edge_json};
             let showGrid = {show_grid_js};
 
-            let scale = 60;
-            let offsetX = 0, offsetY = 0;
+            // Conservation de l'état de la vue
+            let scale = {view_scale};
+            let offsetX = {view_offset_x};
+            let offsetY = {view_offset_y};
             let isDraggingNode = false, draggedNode = null, isPanning = false, startX, startY;
             let mouseDownTime = 0;
 
@@ -264,6 +269,11 @@ def build_interactive_canvas_html():
             function saveStateToStreamlit() {{
                 const url = new URL(window.parent.location.href);
                 url.searchParams.set('canvas_data', JSON.stringify(positions));
+                
+                // Enregistrement des paramètres de vue dans la requête
+                url.searchParams.set('view_scale', scale);
+                url.searchParams.set('view_offset_x', offsetX);
+                url.searchParams.set('view_offset_y', offsetY);
                 
                 if (selectedNode) {{
                     url.searchParams.set('selected_node', selectedNode);
@@ -412,7 +422,6 @@ def build_interactive_canvas_html():
                     let foundNode = null;
                     let foundEdge = null;
 
-                    // Vérifier si un nœud a été cliqué
                     for (let n of nodes) {{
                         const sx = toScreenX(positions[n].x), sy = toScreenY(positions[n].y);
                         if (Math.hypot(mouseX - sx, mouseY - sy) <= 20) {{
@@ -421,7 +430,6 @@ def build_interactive_canvas_html():
                         }}
                     }}
 
-                    // Si aucun nœud n'a été cliqué, vérifier si une arête a été cliquée
                     if (!foundNode) {{
                         for (let e_item of edges) {{
                             if (positions[e_item.source] && positions[e_item.target]) {{
@@ -442,7 +450,7 @@ def build_interactive_canvas_html():
                     selectedNode = foundNode;
                     selectedEdge = foundEdge;
                     saveStateToStreamlit();
-                }} else if (isDraggingNode) {{
+                }} else if (isDraggingNode || isPanning) {{
                     saveStateToStreamlit();
                 }}
 
@@ -451,12 +459,15 @@ def build_interactive_canvas_html():
             }});
 
             canvas.addEventListener('wheel', (e) => {{
-                e.preventDefault(); scale *= e.deltaY < 0 ? 1.1 : 0.9; draw();
+                e.preventDefault(); 
+                scale *= e.deltaY < 0 ? 1.1 : 0.9; 
+                draw();
+                saveStateToStreamlit();
             }});
 
-            function zoomIn() {{ scale *= 1.2; draw(); }}
-            function zoomOut() {{ scale *= 0.8; draw(); }}
-            function resetView() {{ scale = 60; offsetX = canvas.width / 2; offsetY = canvas.height / 2; draw(); }}
+            function zoomIn() {{ scale *= 1.2; draw(); saveStateToStreamlit(); }}
+            function zoomOut() {{ scale *= 0.8; draw(); saveStateToStreamlit(); }}
+            function resetView() {{ scale = 60; offsetX = canvas.width / 2; offsetY = canvas.height / 2; draw(); saveStateToStreamlit(); }}
             function toggleFullScreen() {{
                 if (!document.fullscreenElement) container.requestFullscreen();
                 else document.exitFullscreen();
@@ -477,7 +488,7 @@ st.title("🔍 Le Jeu de l'Inspecteur - Graph Designer")
 col_main, col_info = st.columns([3, 2])
 
 with col_main:
-    st.subheader("🕸️ Représentation du Graphe (Cliquez sur un sommet ou une connexion pour la sélectionner)")
+    st.subheader("🕸️ Représentation du Graphe")
     components.html(build_interactive_canvas_html(), height=520)
 
 with col_info:
